@@ -23,11 +23,19 @@ jobs:
         cd build
         cmake ..
         make
-    - name: run
+    - name: run main
       run: |
         cd build
         ./exam 50 5 check
-    - name: valgrind
+    - name: run sync
+      run: |
+        cd build
+        ./exam_sync 54 5 check
+    - name: valgrind main
       run: |
         cd build
         valgrind --tool=memcheck --leak-check=full --show-reachable=yes ./exam 50 5
+    - name: valgrind sync
+      run: |
+        cd build
+        valgrind --tool=memcheck --leak-check=full --show-reachable=yes ./exam 54 5
