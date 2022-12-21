@@ -44,6 +44,34 @@ void mult_val(int *begin, int len, int val) {
     }
 }
 
+std::condition_variable cv;
+std::mutex cv_m;
+std::atomic_int num_processed = 0;
+std::atomic_int global_max;
+bool processed = false;
+
+void worker(int *begin, int len, int *write_to) {
+    *write_to = calc_max(begin, len);
+    num_processed += 1;
+    std::unique_lock<std::mutex> lk(cv_m);
+    cv.wait(lk, [] { return processed; });
+
+    mult_val(begin, len, global_max);
+}
+
+void chief(int p, int *local_maxes) {
+
+    while (num_processed != p) {
+    }
+    global_max = calc_max(local_maxes, p);
+    {
+        std::lock_guard<std::mutex> lk(cv_m);
+        std::cout << "My multithreaded answer: " << global_max << '\n';
+        processed = true;
+    }
+    cv.notify_all();
+}
+
 // аргументы: N p [check]
 // N - длина, p - число потоков, check - выводить линейный STL максимум для сверки
 int main(int argc, char **argv) {
@@ -73,32 +101,20 @@ int main(int argc, char **argv) {
     // Понял, что с threads не очень удобно взаимодействовать: тяжело получить назад значение
     // len и begin считаю нехитрой арифметикой: для случая в 49 элементов, 5 потоков это будет 0, 9, 18, 27, 36
     // Для 50..54, 5: 0, 10, 20, 30, 40
-    std::vector<std::future<int>> futures_max;
-    for (int i = 0; i < p - 1; ++i) {
-        futures_max.push_back(
-                std::async(std::launch::async, calc_max, mas + i * (N / p), N / p));
-    }
-    futures_max.push_back(std::async(std::launch::async, calc_max, mas + N - N / p - N % p, N / p + N % p));
 
     int *results = new int[p];
-    for (int i = 0; i < p; ++i) {
-        results[i] = futures_max[i].get();
-    }
-
-    int max_value = calc_max(results, p);
-
-    std::cout << "My multithreaded answer: " << max_value << '\n';
-
-    // Решил использовать threads тут, потому что возврат значения не нужен
     std::vector<std::thread> mod_threads;
     for (int i = 0; i < p - 1; ++i) {
-        mod_threads.emplace_back(mult_val, mas + i * (N / p), N / p, max_value);
+        mod_threads.emplace_back(worker, mas + i * (N / p), N / p, results + i);
     }
-    mod_threads.emplace_back(mult_val, mas + N - N / p - N % p, N / p + N % p, max_value);
+    mod_threads.emplace_back(worker, mas + N - N / p - N % p, N / p + N % p, results + p - 1);
+    std::thread chief_thread(chief, p, results);
 
     for (int i = 0; i < p; ++i) {
         mod_threads[i].join();
     }
+    chief_thread.join();
+
 
     std::cout << "Array after max multiplication:\n";
     for (int i = 0; i < N; ++i) {
